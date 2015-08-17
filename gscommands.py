@@ -205,20 +205,10 @@ class GsPatchImportsCommand(sublime_plugin.TextCommand):
 
 class GsGorenameCommand(sublime_plugin.TextCommand):
 	def is_enabled(self):
-		fn = self.view.file_name()
-		if fn:
-			scope_ok = fn.lower().endswith('.go')
-		else:
-			scope_ok = gs.is_go_source_view(self.view)
-
-		return scope_ok 
+		return self._is_go_source(self.view)
 
 	def run(self, edit):
 		view = self.view
-
-		# if view.is_dirty():
-		# 	sublime.error_message("{0}: GoRename failure: Unsaved file".format(DOMAIN))
-		# 	return 
 
 		region = view.sel()[0]
 
@@ -238,25 +228,43 @@ class GsGorenameCommand(sublime_plugin.TextCommand):
 			if new_name == current_selection:
 				return
 
+			view.window().run_command("show_panel", {"panel": "console"})
+
 			gs.println(DOMAIN, 'Requested New Name: {0}'.format(new_name))
 
 			offset =  '{0}:#{1}'.format(filename, region.begin())
-			command = ['gorename', '-offset', offset, '-to', new_name]
+			command = ['gorename', '-v', '-offset', offset, '-to', new_name]
 
 			gs.println(DOMAIN, 'CMD: {0}'.format(' '.join(command)))
 
-			out = ""
+			# Save all Go views
+			for win in sublime.windows():
+				for v in win.views():
+					if not self._is_go_source(v):
+						continue
+					v.run_command("save")
+
+			out = err = ""
 			try:
-				p = gs.popen(command, stderr=subprocess.STDOUT)
+				p = gs.popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 				out = p.communicate()[0]
+				gs.println('GsGorename', out)
+
 				if p.returncode != 0:
 					raise OSError("GoRename failed")
 
 			except Exception as e:
 				msg = gs.tbck.format_exc()
-				if out:
-					msg = '{0}\n{1}'.format(msg, gs.ustr(out))
-				gs.show_output('GsGorename', msg, replace=False, merge_domain=False)
+				gs.println(DOMAIN, msg)
 
 		view.window().show_input_panel("New name:", current_selection, on_done, None, None)
+
+	@staticmethod
+	def _is_go_source(view):
+		fn = view.file_name()
+		if fn:
+			scope_ok = fn.lower().endswith('.go')
+		else:
+			scope_ok = gs.is_go_source_view(view)
+		return scope_ok
 
